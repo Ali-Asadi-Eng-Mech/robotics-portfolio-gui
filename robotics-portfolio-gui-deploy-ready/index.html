@@ -1,0 +1,191 @@
+<!doctype html>
+<html lang="fa" dir="rtl">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="theme-color" content="#07152f" />
+  <title>پورتفولیوی رباتیک | داشبورد مدیریتی</title>
+  <link rel="manifest" href="manifest.webmanifest" />
+  <link rel="icon" href="favicon.svg" type="image/svg+xml" />
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <div class="app-shell">
+    <aside class="sidebar" aria-label="ناوبری اصلی">
+      <div class="brand-block">
+        <div class="brand-mark" aria-hidden="true">R</div>
+        <div>
+          <h1>پورتفولیوی رباتیک</h1>
+          <p>داشبورد کنترل پروژه و جلسه</p>
+        </div>
+      </div>
+
+      <nav class="nav-tabs" id="navTabs">
+        <button class="nav-item active" data-view="dashboard">داشبورد</button>
+        <button class="nav-item" data-view="tasks">تسک‌ها</button>
+        <button class="nav-item" data-view="kanban">برد کانبان</button>
+        <button class="nav-item" data-view="decisions">تصمیم‌ها</button>
+        <button class="nav-item" data-view="risks">ریسک‌ها</button>
+        <button class="nav-item" data-view="meeting">جلسه بعد</button>
+      </nav>
+
+      <div class="side-card warning-card">
+        <span class="mini-label">قاعده سخت‌گیرانه</span>
+        <p id="controlRuleText"></p>
+      </div>
+
+      <div class="side-actions">
+        <button class="ghost-btn" id="exportCsvBtn">خروجی CSV</button>
+        <button class="ghost-btn" id="exportJsonBtn">خروجی JSON</button>
+        <button class="danger-btn" id="resetBtn">بازنشانی وضعیت‌ها</button>
+      </div>
+    </aside>
+
+    <main class="main-content">
+      <header class="topbar">
+        <div>
+          <span class="eyebrow" id="sessionDate"></span>
+          <h2 id="pageTitle">داشبورد مدیریتی پیگیری پروژه‌ها</h2>
+          <p id="pageSubtitle">نمای زنده از وضعیت پروژه‌ها، ددلاین‌ها، ریسک‌ها و تصمیم‌های باز.</p>
+        </div>
+        <div class="topbar-actions">
+          <span class="sync-badge" title="این نسخه فعلاً دیتابیس ندارد و تغییرات را در همین مرورگر ذخیره می‌کند.">ذخیره در مرورگر</span>
+          <button class="primary-btn" id="printBtn">چاپ / PDF</button>
+        </div>
+      </header>
+
+      <section class="view active" id="view-dashboard">
+        <div class="hero-panel">
+          <div class="hero-copy">
+            <span class="section-kicker">مرکز کنترل پورتفولیو</span>
+            <h3>جلسه بعد نباید به مرور وضعیت‌ها تبدیل شود؛ باید محل بستن تصمیم‌ها باشد.</h3>
+            <p>هر کارت، مالک، ددلاین، خروجی قابل تحویل، ریسک و چک‌لیست اجرایی دارد. وضعیت‌ها را به‌روز کنید تا جلسه بعد بدون ابهام و اتلاف وقت پیش برود.</p>
+          </div>
+          <div class="hero-meter">
+            <div class="meter-ring" id="completionRing" style="--p:0%"><span id="completionPercent">۰٪</span></div>
+            <p>پیشرفت بسته‌شدن تسک‌ها</p>
+          </div>
+        </div>
+
+        <div class="kpi-grid" id="kpiGrid"></div>
+
+        <div class="dashboard-grid">
+          <article class="panel urgent-panel">
+            <div class="panel-header">
+              <div>
+                <span class="section-kicker">کنترل فوری</span>
+                <h3>اولویت‌های نزدیک و پرریسک</h3>
+              </div>
+              <button class="ghost-btn small" data-jump="tasks">مشاهده تسک‌ها</button>
+            </div>
+            <div class="urgent-list" id="urgentList"></div>
+          </article>
+
+          <article class="panel">
+            <div class="panel-header">
+              <div>
+                <span class="section-kicker">وضعیت کلان</span>
+                <h3>توزیع وضعیت‌ها</h3>
+              </div>
+            </div>
+            <div class="status-bars" id="statusBars"></div>
+          </article>
+        </div>
+      </section>
+
+      <section class="view" id="view-tasks">
+        <div class="toolbar panel">
+          <div class="search-wrap">
+            <span>جستجو</span>
+            <input id="searchInput" type="search" placeholder="نام پروژه، مسئول، خروجی یا ریسک…" />
+          </div>
+          <label>
+            اولویت
+            <select id="priorityFilter">
+              <option value="all">همه</option>
+              <option value="بسیار بالا">بسیار بالا</option>
+              <option value="بالا">بالا</option>
+              <option value="متوسط رو به بالا">متوسط رو به بالا</option>
+              <option value="متوسط">متوسط</option>
+            </select>
+          </label>
+          <label>
+            وضعیت کاری
+            <select id="laneFilter"></select>
+          </label>
+        </div>
+        <div class="task-grid" id="taskGrid"></div>
+      </section>
+
+      <section class="view" id="view-kanban">
+        <div class="panel info-panel">
+          <strong>روش استفاده:</strong>
+          کارت‌ها را بین ستون‌ها جابه‌جا کنید یا داخل کارت وضعیت را تغییر دهید. این نسخه تغییرات را در مرورگر شما نگه می‌دارد.
+        </div>
+        <div class="kanban-board" id="kanbanBoard"></div>
+      </section>
+
+      <section class="view" id="view-decisions">
+        <article class="panel">
+          <div class="panel-header">
+            <div>
+              <span class="section-kicker">گلوگاه تصمیم</span>
+              <h3>تصمیم‌های باز مدیریتی</h3>
+            </div>
+          </div>
+          <div class="table-wrap">
+            <table class="data-table" id="decisionsTable">
+              <thead>
+                <tr>
+                  <th>موضوع تصمیم</th>
+                  <th>مالک تصمیم</th>
+                  <th>سؤال مدیریتی دقیق</th>
+                  <th>ددلاین</th>
+                  <th>اقدام</th>
+                </tr>
+              </thead>
+              <tbody></tbody>
+            </table>
+          </div>
+        </article>
+      </section>
+
+      <section class="view" id="view-risks">
+        <div class="risk-grid" id="riskGrid"></div>
+      </section>
+
+      <section class="view" id="view-meeting">
+        <div class="meeting-layout">
+          <article class="panel">
+            <div class="panel-header">
+              <div>
+                <span class="section-kicker">جلسه بعد</span>
+                <h3>برنامه اقدام تا جلسه بعد</h3>
+              </div>
+            </div>
+            <ol class="action-plan" id="actionPlan"></ol>
+          </article>
+          <article class="panel strict-panel">
+            <span class="section-kicker">پیشنهاد سخت‌گیرانه</span>
+            <h3>عبارت «در حال پیگیری» به‌تنهایی قابل قبول نیست.</h3>
+            <p>در جلسه بعد، هر مورد باید با خروجی روشن، مسئول مشخص و تاریخ کنترل بسته شود. مواردی که تا ددلاین پاسخ نگیرند، باید متوقف شوند یا مسیر ارتباطی و مالک آن‌ها تغییر کند.</p>
+            <div class="meeting-checks" id="meetingChecks"></div>
+          </article>
+        </div>
+      </section>
+    </main>
+  </div>
+
+  <div class="modal-backdrop" id="modalBackdrop" hidden>
+    <section class="modal" role="dialog" aria-modal="true" aria-labelledby="modalTitle">
+      <button class="modal-close" id="modalClose" aria-label="بستن">×</button>
+      <div id="modalContent"></div>
+    </section>
+  </div>
+
+  <div class="toast" id="toast" role="status" aria-live="polite"></div>
+
+  <script src="data.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>
