@@ -1,0 +1,17 @@
+{
+  "name": "پورتفولیوی رباتیک | داشبورد مدیریتی",
+  "short_name": "پورتفولیو",
+  "start_url": "./index.html",
+  "display": "standalone",
+  "background_color": "#071126",
+  "theme_color": "#07152f",
+  "dir": "rtl",
+  "lang": "fa",
+  "icons": [
+    {
+      "src": "favicon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml"
+    }
+  ]
+}
