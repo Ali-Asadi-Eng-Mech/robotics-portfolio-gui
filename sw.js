@@ -1,4 +1,4 @@
-const CACHE_NAME = 'robotics-portfolio-dashboard-v3-clean-persian';
+const CACHE_NAME = 'robotics-portfolio-dashboard-v6-editable';
 const ASSETS = ['./', './index.html', './styles.css', './app.js', './data.js', './manifest.webmanifest', './favicon.svg'];
 
 self.addEventListener('install', event => {

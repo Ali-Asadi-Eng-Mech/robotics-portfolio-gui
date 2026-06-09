@@ -249,39 +249,6 @@
           </form>
         </div>
 
-
-
-        <div class="panel telegram-settings-panel">
-          <div class="panel-header compact">
-            <div>
-              <span class="section-kicker">اتصال تلگرام</span>
-              <h3>تنظیمات ارسال اعلان از طریق ربات تلگرام</h3>
-            </div>
-            <span class="badge" id="telegramStatusBadge">غیرفعال</span>
-          </div>
-          <p class="helper-text">توکن ربات تلگرام نباید داخل سایت قرار بگیرد. این اپ فقط به Worker امن شما درخواست می‌فرستد و Worker پیام را به تلگرام ارسال می‌کند.</p>
-          <form id="telegramSettingsForm" class="editor-form telegram-form" onsubmit="return false;">
-            <div class="form-grid two">
-              <label>آدرس Cloudflare Worker
-                <input id="telegramWorkerUrl" type="url" placeholder="https://portfolio-telegram-notifier.USER.workers.dev" />
-              </label>
-              <label>کلید اعلان سایت
-                <input id="telegramSharedKey" type="password" placeholder="همان APP_SHARED_SECRET در Worker" autocomplete="off" />
-              </label>
-            </div>
-            <label>Chat IDهای پیش‌فرض؛ با ویرگول جدا کن
-              <input id="telegramDefaultChatIds" type="text" placeholder="123456789, -1001234567890" inputmode="text" />
-            </label>
-            <label>لینک عمومی اپ برای قرار گرفتن در پیام‌ها
-              <input id="telegramAppUrl" type="url" placeholder="https://ali-asadi-eng-mech.github.io/robotics-portfolio-gui/" />
-            </label>
-            <div class="editor-actions-row">
-              <button class="primary-btn" data-save-telegram-settings>ذخیره تنظیمات تلگرام</button>
-              <button class="ghost-btn" data-test-telegram>ارسال پیام تست</button>
-            </div>
-          </form>
-        </div>
-
         <div class="editor-layout">
           <aside class="panel editor-list-panel">
             <div class="panel-header compact">

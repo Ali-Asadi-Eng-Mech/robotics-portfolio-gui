@@ -1,7 +1,116 @@
 (() => {
-  const DATA = window.PORTFOLIO_DATA;
-  const STORAGE_KEY = 'roboticsPortfolioDashboard.v3.cleanPersian';
+  const DEFAULT_DATA = structuredClone(window.PORTFOLIO_DATA);
+  const STORAGE_KEY = 'roboticsPortfolioDashboard.v4.status';
+  const CONTENT_STORAGE_KEY = 'roboticsPortfolioDashboard.v4.content';
+  const TELEGRAM_STORAGE_KEY = 'roboticsPortfolioDashboard.v1.telegram';
   const PERSIAN_DIGITS = ['۰','۱','۲','۳','۴','۵','۶','۷','۸','۹'];
+
+  // رمز پیش‌فرض: CAST-Robotics-1405
+  // نکته: این قفل برای GitHub Pages یک قفل سمت مرورگر است و امنیت سازمانی کامل محسوب نمی‌شود.
+  const AUTH_CONFIG = {
+    enabled: true,
+    passwordHash: 'fb078bda1c9310a2060b16d06060d865ae8988841e983ca89e4bb5d2a3ff5bc8',
+    sessionKey: 'roboticsPortfolioDashboard.v5.auth',
+    sessionHours: 8,
+    maxAttempts: 5,
+  };
+  let authAttempts = 0;
+
+  async function sha256Hex(value) {
+    const encoder = new TextEncoder();
+    const buffer = await crypto.subtle.digest('SHA-256', encoder.encode(String(value)));
+    return Array.from(new Uint8Array(buffer)).map(byte => byte.toString(16).padStart(2, '0')).join('');
+  }
+
+  function authSessionIsValid() {
+    if (!AUTH_CONFIG.enabled) return true;
+    try {
+      const raw = sessionStorage.getItem(AUTH_CONFIG.sessionKey);
+      if (!raw) return false;
+      const session = JSON.parse(raw);
+      return Boolean(session?.ok) && Date.now() - Number(session.time || 0) < AUTH_CONFIG.sessionHours * 60 * 60 * 1000;
+    } catch (_) {
+      return false;
+    }
+  }
+
+  function revealApplication() {
+    document.body.classList.remove('auth-locked');
+    document.body.classList.add('auth-unlocked');
+    $('.app-shell')?.removeAttribute('aria-hidden');
+  }
+
+  function lockApplication() {
+    sessionStorage.removeItem(AUTH_CONFIG.sessionKey);
+    location.reload();
+  }
+
+  function showAuthGate(onSuccess) {
+    const form = $('#authForm');
+    const input = $('#authPassword');
+    const error = $('#authError');
+    if (!form || !input) {
+      console.error('Authentication form not found.');
+      return;
+    }
+    window.setTimeout(() => input.focus(), 100);
+    form.addEventListener('submit', async event => {
+      event.preventDefault();
+      error.textContent = '';
+      const value = input.value.trim();
+      if (!value) return;
+      if (!crypto?.subtle) {
+        error.textContent = 'مرورگر شما از بررسی امن رمز پشتیبانی نمی‌کند. مرورگر را به‌روزرسانی کنید.';
+        return;
+      }
+      const enteredHash = await sha256Hex(value);
+      if (enteredHash === AUTH_CONFIG.passwordHash) {
+        sessionStorage.setItem(AUTH_CONFIG.sessionKey, JSON.stringify({ ok: true, time: Date.now() }));
+        input.value = '';
+        revealApplication();
+        onSuccess();
+        return;
+      }
+      authAttempts += 1;
+      input.value = '';
+      error.textContent = authAttempts >= AUTH_CONFIG.maxAttempts
+        ? 'رمز چند بار اشتباه وارد شد. صفحه را دوباره بارگذاری کنید یا رمز صحیح را وارد کنید.'
+        : 'رمز واردشده نادرست است.';
+    });
+  }
+
+  function runAfterAuthentication(onSuccess) {
+    if (!AUTH_CONFIG.enabled || authSessionIsValid()) {
+      revealApplication();
+      onSuccess();
+      return;
+    }
+    showAuthGate(onSuccess);
+  }
+
+  function loadContentSnapshot() {
+    try {
+      const raw = localStorage.getItem(CONTENT_STORAGE_KEY);
+      if (!raw) return structuredClone(DEFAULT_DATA);
+      const saved = JSON.parse(raw);
+      if (!saved || !Array.isArray(saved.tasks)) return structuredClone(DEFAULT_DATA);
+      return {
+        ...structuredClone(DEFAULT_DATA),
+        meta: { ...structuredClone(DEFAULT_DATA.meta), ...(saved.meta || {}) },
+        summary: { ...structuredClone(DEFAULT_DATA.summary), ...(saved.summary || {}) },
+        lanes: Array.isArray(saved.lanes) ? saved.lanes : structuredClone(DEFAULT_DATA.lanes),
+        tasks: saved.tasks,
+        decisions: Array.isArray(saved.decisions) ? saved.decisions : structuredClone(DEFAULT_DATA.decisions),
+        risks: Array.isArray(saved.risks) ? saved.risks : structuredClone(DEFAULT_DATA.risks),
+        actionPlan: Array.isArray(saved.actionPlan) ? saved.actionPlan : structuredClone(DEFAULT_DATA.actionPlan),
+      };
+    } catch (error) {
+      console.warn('Could not load editable content', error);
+      return structuredClone(DEFAULT_DATA);
+    }
+  }
+
+  let DATA = loadContentSnapshot();
 
   const state = {
     activeView: 'dashboard',
@@ -12,7 +121,27 @@
     checks: {},
     notes: {},
     meetingChecks: {},
+    selectedTaskId: DATA.tasks[0]?.id || null,
   };
+
+
+  function loadTelegramSettings() {
+    try {
+      const raw = localStorage.getItem(TELEGRAM_STORAGE_KEY);
+      if (!raw) return { workerUrl: '', sharedKey: '', defaultChatIds: '', appUrl: location.href.split('#')[0] };
+      const saved = JSON.parse(raw);
+      return {
+        workerUrl: saved.workerUrl || '',
+        sharedKey: saved.sharedKey || '',
+        defaultChatIds: saved.defaultChatIds || '',
+        appUrl: saved.appUrl || location.href.split('#')[0],
+      };
+    } catch (_) {
+      return { workerUrl: '', sharedKey: '', defaultChatIds: '', appUrl: location.href.split('#')[0] };
+    }
+  }
+
+  let telegramSettings = loadTelegramSettings();
 
   const $ = (selector, root = document) => root.querySelector(selector);
   const $$ = (selector, root = document) => Array.from(root.querySelectorAll(selector));
@@ -99,6 +228,7 @@
       decisions: ['تصمیم‌های باز مدیریتی', 'گلوگاه‌هایی که بدون تصمیم روشن، پروژه را کند یا متوقف می‌کنند.'],
       risks: ['ریسک‌های مدیریتی', 'ریسک‌ها باید کنترل عملیاتی داشته باشند، نه فقط عنوان هشدار.'],
       meeting: ['برنامه اقدام تا جلسه بعد', 'جلسه بعد باید روی خروجی‌های بسته‌شده و تصمیم‌های دقیق تمرکز کند.'],
+      editor: ['ویرایش محتوا و ذخیره تغییرات', 'متن کارت‌ها، مسئول‌ها، ددلاین‌ها و چک‌لیست‌ها را بدون تغییر کد اصلاح کنید.'],
     };
     $('#pageTitle').textContent = titles[viewId][0];
     $('#pageSubtitle').textContent = titles[viewId][1];
@@ -181,7 +311,7 @@
 
   function renderPriorityFilter() {
     const order = ['بسیار بالا', 'بالا', 'نیازمند تصمیم دکتر', 'در انتظار پاسخ', 'نیازمند پیگیری قراردادی', 'متوسط رو به بالا', 'متوسط'];
-    const existing = [...new Set(DATA.tasks.map(task => task.priority))];
+    const existing = [...new Set(state.tasks.map(task => task.priority))];
     const priorities = order.filter(item => existing.includes(item)).concat(existing.filter(item => !order.includes(item)));
     $('#priorityFilter').innerHTML = '<option value="all">همه</option>' + priorities.map(priority => `<option value="${priority}">${priority}</option>`).join('');
     $('#priorityFilter').value = state.priority;
@@ -317,8 +447,501 @@
     `).join('');
   }
 
+
+  function updateDerivedSummary() {
+    DATA.summary = {
+      activeAxes: state.tasks.length,
+      highPriority: state.tasks.filter(task => task.priorityLevel >= 4).length,
+      waitingResponse: state.tasks.filter(task => task.lane === 'waiting' || task.priority === 'در انتظار پاسخ').length,
+      doctorDecisions: state.tasks.filter(task => task.doctorDecision || task.lane === 'decision').length,
+    };
+  }
+
+  function saveContent() {
+    updateDerivedSummary();
+    DATA.tasks = structuredClone(state.tasks);
+    const payload = {
+      meta: DATA.meta,
+      summary: DATA.summary,
+      lanes: DATA.lanes,
+      tasks: DATA.tasks,
+      decisions: DATA.decisions,
+      risks: DATA.risks,
+      actionPlan: DATA.actionPlan,
+      savedAt: new Date().toISOString(),
+      lastUpdatedText: metaUpdatedText(),
+    };
+    localStorage.setItem(CONTENT_STORAGE_KEY, JSON.stringify(payload));
+  }
+
+  function selectedTask() {
+    return state.tasks.find(task => task.id === state.selectedTaskId) || state.tasks[0] || null;
+  }
+
+  function uniqueId(base = 'task') {
+    const slug = String(base || 'task')
+      .trim()
+      .replace(/[‌\s]+/g, '-')
+      .replace(/[^\w\-؀-ۿ]/g, '')
+      .slice(0, 40) || 'task';
+    let id = `${slug}-${Date.now().toString(36)}`;
+    let i = 1;
+    while (state.tasks.some(task => task.id === id)) id = `${slug}-${Date.now().toString(36)}-${i++}`;
+    return id;
+  }
+
+  function formValue(selector, root = document) {
+    const el = $(selector, root);
+    return el ? el.value.trim() : '';
+  }
+
+  function textareaLines(value) {
+    return String(value || '')
+      .split('\n')
+      .map(item => item.trim())
+      .filter(Boolean);
+  }
+
+  function normalizePriorityLevel(value) {
+    const n = Number(value);
+    if (!Number.isFinite(n)) return 3;
+    return Math.max(1, Math.min(5, n));
+  }
+
+
+  function metaUpdatedText() {
+    const date = DATA.meta.lastUpdatedDate || DATA.meta.sessionDateJalali || '';
+    const time = DATA.meta.lastUpdatedTime || '';
+    const by = DATA.meta.lastUpdatedBy || '';
+    const parts = [];
+    if (date) parts.push(`آخرین آپدیت: ${date}`);
+    if (time) parts.push(`ساعت ${time}`);
+    if (by) parts.push(`توسط ${by}`);
+    return parts.join(' · ') || 'آخرین آپدیت ثبت نشده است.';
+  }
+
+  function renderMetaEditor() {
+    const form = $('#metaEditorForm');
+    if (!form) return;
+    const date = $('#editLastUpdatedDate');
+    const time = $('#editLastUpdatedTime');
+    const by = $('#editLastUpdatedBy');
+    const version = $('#editVersion');
+    const note = $('#editLastUpdatedNote');
+    if (date && document.activeElement !== date) date.value = DATA.meta.lastUpdatedDate || '';
+    if (time && document.activeElement !== time) time.value = DATA.meta.lastUpdatedTime || '';
+    if (by && document.activeElement !== by) by.value = DATA.meta.lastUpdatedBy || '';
+    if (version && document.activeElement !== version) version.value = DATA.meta.version || '';
+    if (note && document.activeElement !== note) note.value = DATA.meta.lastUpdatedNote || '';
+    const badge = $('#metaPreviewBadge');
+    if (badge) badge.textContent = metaUpdatedText();
+  }
+
+  function saveSiteMetaFromForm() {
+    DATA.meta.lastUpdatedDate = formValue('#editLastUpdatedDate') || DATA.meta.lastUpdatedDate || '';
+    DATA.meta.lastUpdatedTime = formValue('#editLastUpdatedTime') || DATA.meta.lastUpdatedTime || '';
+    DATA.meta.lastUpdatedBy = formValue('#editLastUpdatedBy') || DATA.meta.lastUpdatedBy || '';
+    DATA.meta.version = formValue('#editVersion') || DATA.meta.version || '';
+    DATA.meta.lastUpdatedNote = formValue('#editLastUpdatedNote') || '';
+    saveContent();
+    renderAll();
+    setView('editor');
+    toast('تاریخ، زمان و اطلاعات نسخه سایت ذخیره شد.');
+  }
+
+  function fillMetaWithCurrentDeviceTime() {
+    const now = new Date();
+    const dateInput = $('#editLastUpdatedDate');
+    const timeInput = $('#editLastUpdatedTime');
+    if (dateInput) dateInput.value = new Intl.DateTimeFormat('fa-IR-u-ca-persian', { year: 'numeric', month: '2-digit', day: '2-digit' }).format(now);
+    if (timeInput) timeInput.value = new Intl.DateTimeFormat('fa-IR', { hour: '2-digit', minute: '2-digit', hour12: false }).format(now);
+    toast('تاریخ و ساعت فعلی دستگاه در فرم قرار گرفت؛ برای ثبت نهایی دکمه ذخیره را بزن.');
+  }
+
+
+  function parseChatIds(value) {
+    return String(value || '')
+      .split(/[،,\n]/)
+      .map(item => item.trim())
+      .filter(Boolean);
+  }
+
+  function saveTelegramSettingsFromForm() {
+    telegramSettings = {
+      workerUrl: formValue('#telegramWorkerUrl'),
+      sharedKey: formValue('#telegramSharedKey'),
+      defaultChatIds: formValue('#telegramDefaultChatIds'),
+      appUrl: formValue('#telegramAppUrl') || location.href.split('#')[0],
+    };
+    localStorage.setItem(TELEGRAM_STORAGE_KEY, JSON.stringify(telegramSettings));
+    renderTelegramSettings();
+    toast('تنظیمات تلگرام در همین مرورگر ذخیره شد.');
+  }
+
+  function renderTelegramSettings() {
+    const workerUrl = $('#telegramWorkerUrl');
+    const sharedKey = $('#telegramSharedKey');
+    const defaultChatIds = $('#telegramDefaultChatIds');
+    const appUrl = $('#telegramAppUrl');
+    if (workerUrl && document.activeElement !== workerUrl) workerUrl.value = telegramSettings.workerUrl || '';
+    if (sharedKey && document.activeElement !== sharedKey) sharedKey.value = telegramSettings.sharedKey || '';
+    if (defaultChatIds && document.activeElement !== defaultChatIds) defaultChatIds.value = telegramSettings.defaultChatIds || '';
+    if (appUrl && document.activeElement !== appUrl) appUrl.value = telegramSettings.appUrl || location.href.split('#')[0];
+    const badge = $('#telegramStatusBadge');
+    if (badge) badge.textContent = telegramSettings.workerUrl ? 'آماده ارسال' : 'غیرفعال';
+  }
+
+  function taskTelegramChatIds(task) {
+    const taskIds = parseChatIds(task.telegramChatIds);
+    return taskIds.length ? taskIds : parseChatIds(telegramSettings.defaultChatIds);
+  }
+
+  async function sendTelegramNotification(task, options = {}) {
+    if (!telegramSettings.workerUrl) {
+      toast('ابتدا آدرس Cloudflare Worker را در تنظیمات تلگرام وارد و ذخیره کن.');
+      setView('editor');
+      return;
+    }
+    const chatIds = options.chatIds || taskTelegramChatIds(task);
+    if (!chatIds.length) {
+      toast('برای این کارت یا تنظیمات تلگرام، Chat ID ثبت نشده است.');
+      return;
+    }
+    const payload = {
+      chatIds,
+      title: task.title,
+      owner: task.owner,
+      deadline: task.deadline,
+      priority: task.priority,
+      lane: laneTitle(task.lane),
+      meetingStatus: task.meetingStatus,
+      deliverable: task.deliverable,
+      nextAction: task.nextAction,
+      risk: task.risk,
+      note: options.note || task.telegramNote || '',
+      appUrl: telegramSettings.appUrl || location.href.split('#')[0],
+      sentAt: new Date().toISOString(),
+    };
+
+    const headers = { 'Content-Type': 'application/json' };
+    if (telegramSettings.sharedKey) headers['x-portfolio-key'] = telegramSettings.sharedKey;
+
+    try {
+      const response = await fetch(telegramSettings.workerUrl, {
+        method: 'POST',
+        headers,
+        body: JSON.stringify(payload),
+      });
+      const result = await response.json().catch(() => ({}));
+      if (!response.ok || result.ok === false) {
+        throw new Error(result.error || `HTTP ${response.status}`);
+      }
+      toast('اعلان تلگرام ارسال شد.');
+    } catch (error) {
+      console.error(error);
+      toast(`ارسال تلگرام ناموفق بود: ${error.message || 'خطای نامشخص'}`);
+    }
+  }
+
+  function sendSelectedTaskTelegram(taskId) {
+    const task = state.tasks.find(item => item.id === taskId);
+    if (!task) return;
+    sendTelegramNotification(task);
+  }
+
+  function sendTelegramTest() {
+    const testTask = {
+      title: 'پیام تست داشبورد پورتفولیوی رباتیک',
+      owner: DATA.meta.lastUpdatedBy || 'مدیر پورتفولیو',
+      deadline: DATA.meta.lastUpdatedDate || 'ثبت نشده',
+      priority: 'تست اتصال',
+      lane: 'open',
+      meetingStatus: 'تست',
+      deliverable: 'بررسی اتصال سایت به ربات تلگرام',
+      nextAction: 'اگر این پیام را دریافت کردید، اتصال Worker و ربات درست است.',
+      risk: 'ندارد',
+      telegramChatIds: telegramSettings.defaultChatIds,
+      telegramNote: 'این پیام صرفاً برای تست اتصال ارسال شده است.',
+    };
+    sendTelegramNotification(testTask, { note: 'این پیام صرفاً برای تست اتصال ارسال شده است.' });
+  }
+
+  function renderEditor() {
+    const list = $('#editorTaskList');
+    const form = $('#editorForm');
+    if (!list || !form) return;
+    if (!state.tasks.length) {
+      list.innerHTML = '<div class="empty-editor">هنوز کارتی ثبت نشده است.</div>';
+      form.innerHTML = '<div class="editor-empty-state">برای شروع، یک کارت جدید بسازید.</div>';
+      return;
+    }
+    if (!selectedTask()) state.selectedTaskId = state.tasks[0].id;
+    const task = selectedTask();
+    list.innerHTML = state.tasks.map(item => `
+      <button class="editor-task-row ${item.id === task.id ? 'active' : ''}" data-select-edit-task="${item.id}">
+        <strong>${toFa(item.row || '')}. ${escapeHtml(item.title)}</strong>
+        <span>${escapeHtml(item.owner || 'بدون مسئول')} · ${escapeHtml(item.deadline || 'بدون ددلاین')}</span>
+      </button>
+    `).join('');
+
+    form.innerHTML = `
+      <div class="editor-form-head">
+        <div>
+          <span class="section-kicker">ویرایش کارت</span>
+          <h3>${escapeHtml(task.title)}</h3>
+        </div>
+        <span class="badge">${laneTitle(task.lane)}</span>
+      </div>
+      <div class="form-grid two">
+        <label>ردیف
+          <input id="editRow" type="number" min="1" value="${Number(task.row) || 1}" />
+        </label>
+        <label>وضعیت کاری
+          <select id="editLane">
+            ${DATA.lanes.map(lane => `<option value="${lane.id}" ${lane.id === task.lane ? 'selected' : ''}>${lane.title}</option>`).join('')}
+          </select>
+        </label>
+      </div>
+      <label>عنوان پروژه / تسک
+        <input id="editTitle" type="text" value="${escapeAttr(task.title)}" />
+      </label>
+      <div class="form-grid two">
+        <label>مسئول / پیگیر
+          <input id="editOwner" type="text" value="${escapeAttr(task.owner)}" />
+        </label>
+        <label>ددلاین
+          <input id="editDeadline" type="text" value="${escapeAttr(task.deadline)}" placeholder="مثلاً ۱۴۰۵/۰۳/۲۰" />
+        </label>
+      </div>
+      <div class="form-grid two">
+        <label>اولویت
+          <input id="editPriority" type="text" value="${escapeAttr(task.priority)}" />
+        </label>
+        <label>امتیاز اولویت
+          <select id="editPriorityLevel">
+            ${[1,2,3,4,5].map(n => `<option value="${n}" ${Number(task.priorityLevel) === n ? 'selected' : ''}>${toFa(n)} از ۵</option>`).join('')}
+          </select>
+        </label>
+      </div>
+      <label>وضعیت جلسه
+        <input id="editMeetingStatus" type="text" value="${escapeAttr(task.meetingStatus)}" />
+      </label>
+      <label>خروجی قابل تحویل
+        <textarea id="editDeliverable" rows="2">${escapeHtml(task.deliverable)}</textarea>
+      </label>
+      <label>اقدام بعدی
+        <textarea id="editNextAction" rows="4">${escapeHtml(task.nextAction)}</textarea>
+      </label>
+      <label>ریسک مدیریتی / نکته حساس
+        <textarea id="editRisk" rows="4">${escapeHtml(task.risk)}</textarea>
+      </label>
+      <label>چک‌لیست اجرایی؛ هر مورد در یک خط
+        <textarea id="editChecklist" rows="6">${escapeHtml((task.checklist || []).join('\n'))}</textarea>
+      </label>
+      <label>برچسب‌ها؛ با ویرگول جدا کن
+        <input id="editTags" type="text" value="${escapeAttr((task.tags || []).join('، '))}" />
+      </label>
+      <div class="telegram-task-box">
+        <span class="section-kicker">اعلان تلگرام</span>
+        <label>Chat IDهای مخصوص این کارت؛ با ویرگول جدا کن
+          <input id="editTelegramChatIds" type="text" value="${escapeAttr(task.telegramChatIds || '')}" placeholder="خالی بماند، از Chat IDهای پیش‌فرض استفاده می‌شود." />
+        </label>
+        <label>یادداشت کوتاه پیام تلگرام
+          <textarea id="editTelegramNote" rows="3" placeholder="مثلاً لطفاً وضعیت این تسک را تا پایان امروز اعلام کنید.">${escapeHtml(task.telegramNote || '')}</textarea>
+        </label>
+      </div>
+      <label class="check-line">
+        <input id="editDoctorDecision" type="checkbox" ${task.doctorDecision ? 'checked' : ''} />
+        <span>این مورد نیازمند تصمیم دکتر است.</span>
+      </label>
+      <div class="editor-actions-row">
+        <button class="primary-btn" data-save-editor-task="${task.id}">ذخیره تغییرات کارت</button>
+        <button class="ghost-btn" data-send-telegram-task="${task.id}">ارسال اعلان تلگرام</button>
+        <button class="ghost-btn" data-duplicate-task="${task.id}">کپی کارت</button>
+        <button class="danger-btn" data-delete-task="${task.id}">حذف کارت</button>
+      </div>
+    `;
+  }
+
+  function applyEditorForm(taskId) {
+    const task = state.tasks.find(item => item.id === taskId);
+    if (!task) return;
+    const title = formValue('#editTitle');
+    if (!title) {
+      toast('عنوان کارت نمی‌تواند خالی باشد.');
+      return;
+    }
+    task.row = Number(formValue('#editRow')) || task.row || 1;
+    task.title = title;
+    task.lane = formValue('#editLane') || task.lane;
+    task.owner = formValue('#editOwner');
+    task.deadline = formValue('#editDeadline');
+    task.priority = formValue('#editPriority') || 'متوسط';
+    task.priorityLevel = normalizePriorityLevel(formValue('#editPriorityLevel'));
+    task.meetingStatus = formValue('#editMeetingStatus');
+    task.deliverable = formValue('#editDeliverable');
+    task.nextAction = formValue('#editNextAction');
+    task.risk = formValue('#editRisk');
+    task.checklist = textareaLines(formValue('#editChecklist'));
+    task.tags = formValue('#editTags').split(/[،,]/).map(item => item.trim()).filter(Boolean);
+    task.telegramChatIds = formValue('#editTelegramChatIds');
+    task.telegramNote = formValue('#editTelegramNote');
+    task.doctorDecision = !!$('#editDoctorDecision')?.checked;
+    state.tasks.sort((a, b) => (Number(a.row) || 999) - (Number(b.row) || 999));
+    saveContent();
+    saveState();
+    renderAll();
+    setView('editor');
+    toast('کارت ویرایش و ذخیره شد.');
+  }
+
+  function createNewTask() {
+    const nextRow = state.tasks.reduce((max, task) => Math.max(max, Number(task.row) || 0), 0) + 1;
+    const task = {
+      id: uniqueId('new-task'),
+      row: nextRow,
+      title: 'کارت جدید',
+      meetingStatus: 'نیازمند تکمیل',
+      lane: 'open',
+      owner: 'نامشخص',
+      deadline: '۱۴۰۵/۰۳/۲۰',
+      priority: 'متوسط',
+      priorityLevel: 2,
+      deliverable: 'خروجی قابل تحویل را مشخص کنید.',
+      nextAction: 'اقدام بعدی را بنویسید.',
+      risk: 'ریسک مدیریتی را بنویسید.',
+      doctorDecision: false,
+      tags: [],
+      checklist: ['مالک مشخص شود.', 'خروجی قابل تحویل مشخص شود.', 'ددلاین تأیید شود.'],
+      telegramChatIds: '',
+      telegramNote: '',
+    };
+    state.tasks.push(task);
+    state.selectedTaskId = task.id;
+    saveContent();
+    saveState();
+    renderAll();
+    setView('editor');
+    toast('کارت جدید ساخته شد.');
+  }
+
+  function duplicateTask(taskId) {
+    const source = state.tasks.find(task => task.id === taskId);
+    if (!source) return;
+    const clone = structuredClone(source);
+    clone.id = uniqueId(source.title);
+    clone.row = state.tasks.reduce((max, task) => Math.max(max, Number(task.row) || 0), 0) + 1;
+    clone.title = `${clone.title} - کپی`;
+    state.tasks.push(clone);
+    state.selectedTaskId = clone.id;
+    saveContent();
+    saveState();
+    renderAll();
+    setView('editor');
+    toast('کارت کپی شد.');
+  }
+
+  function deleteTask(taskId) {
+    const task = state.tasks.find(item => item.id === taskId);
+    if (!task) return;
+    if (!confirm(`کارت «${task.title}» حذف شود؟ این حذف فقط در داده‌های ذخیره‌شده این مرورگر اعمال می‌شود.`)) return;
+    state.tasks = state.tasks.filter(item => item.id !== taskId);
+    delete state.checks[taskId];
+    delete state.notes[taskId];
+    state.selectedTaskId = state.tasks[0]?.id || null;
+    saveContent();
+    saveState();
+    renderAll();
+    setView('editor');
+    toast('کارت حذف شد.');
+  }
+
+  function exportFullBackup() {
+    saveContent();
+    const payload = {
+      exportedAt: new Date().toISOString(),
+      app: 'robotics-portfolio-dashboard',
+      schema: 5,
+      meta: DATA.meta,
+      summary: DATA.summary,
+      lanes: DATA.lanes,
+      tasks: state.tasks,
+      decisions: DATA.decisions,
+      risks: DATA.risks,
+      actionPlan: DATA.actionPlan,
+      status: {
+        checks: state.checks,
+        notes: state.notes,
+        meetingChecks: state.meetingChecks,
+      },
+    };
+    downloadFile('robotics-portfolio-full-backup.json', JSON.stringify(payload, null, 2), 'application/json;charset=utf-8');
+    toast('پشتیبان کامل ساخته شد.');
+  }
+
+  function importFullBackup(file) {
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = () => {
+      try {
+        const payload = JSON.parse(reader.result);
+        if (!payload || !Array.isArray(payload.tasks)) throw new Error('Invalid backup');
+        DATA = {
+          ...structuredClone(DEFAULT_DATA),
+          meta: { ...structuredClone(DEFAULT_DATA.meta), ...(payload.meta || {}) },
+          summary: { ...structuredClone(DEFAULT_DATA.summary), ...(payload.summary || {}) },
+          lanes: Array.isArray(payload.lanes) ? payload.lanes : structuredClone(DEFAULT_DATA.lanes),
+          tasks: payload.tasks,
+          decisions: Array.isArray(payload.decisions) ? payload.decisions : structuredClone(DEFAULT_DATA.decisions),
+          risks: Array.isArray(payload.risks) ? payload.risks : structuredClone(DEFAULT_DATA.risks),
+          actionPlan: Array.isArray(payload.actionPlan) ? payload.actionPlan : structuredClone(DEFAULT_DATA.actionPlan),
+        };
+        state.tasks = structuredClone(DATA.tasks);
+        state.checks = payload.status?.checks || {};
+        state.notes = payload.status?.notes || {};
+        state.meetingChecks = payload.status?.meetingChecks || {};
+        state.selectedTaskId = state.tasks[0]?.id || null;
+        saveContent();
+        saveState();
+        renderAll();
+        setView('dashboard');
+        toast('پشتیبان وارد شد و داده‌ها ذخیره شدند.');
+      } catch (error) {
+        console.error(error);
+        toast('فایل پشتیبان معتبر نیست.');
+      } finally {
+        $('#importBackupInput').value = '';
+      }
+    };
+    reader.readAsText(file, 'utf-8');
+  }
+
+  function resetContent() {
+    if (!confirm('متن‌ها و ساختار کارت‌ها به نسخه اولیه برگردد؟ یادداشت‌ها و تیک‌ها هم حذف می‌شوند.')) return;
+    localStorage.removeItem(CONTENT_STORAGE_KEY);
+    localStorage.removeItem(STORAGE_KEY);
+    DATA = structuredClone(DEFAULT_DATA);
+    state.tasks = structuredClone(DATA.tasks);
+    state.checks = {};
+    state.notes = {};
+    state.meetingChecks = {};
+    state.selectedTaskId = state.tasks[0]?.id || null;
+    renderAll();
+    setView('dashboard');
+    toast('محتوا به نسخه اولیه برگشت.');
+  }
+
+  function escapeAttr(value) {
+    return escapeHtml(value).replace(/`/g, '&#096;');
+  }
+
   function renderAll() {
     $('#sessionDate').textContent = DATA.meta.sessionDate;
+    const lastUpdatedDisplay = $('#lastUpdatedDisplay');
+    if (lastUpdatedDisplay) {
+      lastUpdatedDisplay.textContent = metaUpdatedText();
+      lastUpdatedDisplay.title = DATA.meta.lastUpdatedNote || DATA.meta.version || 'اطلاعات آخرین به‌روزرسانی';
+    }
     $('#controlRuleText').textContent = DATA.meta.controlRule;
     renderKpis();
     renderCompletion();
@@ -331,6 +954,9 @@
     renderDecisions();
     renderRisks();
     renderMeeting();
+    renderEditor();
+    renderMetaEditor();
+    renderTelegramSettings();
   }
 
   function updateTaskLane(taskId, lane) {
@@ -466,6 +1092,52 @@
         renderAll();
         toast('جزئیات کارت ذخیره شد.');
       }
+
+      const editSelect = event.target.closest('[data-select-edit-task]');
+      if (editSelect) {
+        state.selectedTaskId = editSelect.dataset.selectEditTask;
+        renderEditor();
+      }
+
+      const addTaskBtn = event.target.closest('[data-add-task]');
+      if (addTaskBtn) createNewTask();
+
+      const saveEditor = event.target.closest('[data-save-editor-task]');
+      if (saveEditor) applyEditorForm(saveEditor.dataset.saveEditorTask);
+
+      const duplicateBtn = event.target.closest('[data-duplicate-task]');
+      if (duplicateBtn) duplicateTask(duplicateBtn.dataset.duplicateTask);
+
+      const deleteBtn = event.target.closest('[data-delete-task]');
+      if (deleteBtn) deleteTask(deleteBtn.dataset.deleteTask);
+
+      const exportFullBtn = event.target.closest('[data-export-full]');
+      if (exportFullBtn) exportFullBackup();
+
+      const importFullBtn = event.target.closest('[data-import-full]');
+      if (importFullBtn) $('#importBackupInput')?.click();
+
+      const resetContentBtn = event.target.closest('[data-reset-content]');
+      if (resetContentBtn) resetContent();
+
+      const saveSiteMetaBtn = event.target.closest('[data-save-site-meta]');
+      if (saveSiteMetaBtn) saveSiteMetaFromForm();
+
+      const fillNowMetaBtn = event.target.closest('[data-fill-now-meta]');
+      if (fillNowMetaBtn) fillMetaWithCurrentDeviceTime();
+
+      const saveTelegramSettingsBtn = event.target.closest('[data-save-telegram-settings]');
+      if (saveTelegramSettingsBtn) saveTelegramSettingsFromForm();
+
+      const testTelegramBtn = event.target.closest('[data-test-telegram]');
+      if (testTelegramBtn) sendTelegramTest();
+
+      const sendTelegramTaskBtn = event.target.closest('[data-send-telegram-task]');
+      if (sendTelegramTaskBtn) {
+        applyEditorForm(sendTelegramTaskBtn.dataset.sendTelegramTask);
+        const task = state.tasks.find(item => item.id === sendTelegramTaskBtn.dataset.sendTelegramTask);
+        if (task) sendTelegramNotification(task);
+      }
     });
 
     document.body.addEventListener('change', event => {
@@ -515,6 +1187,8 @@
     $('#exportJsonBtn').addEventListener('click', exportJson);
     $('#resetBtn').addEventListener('click', resetState);
     $('#printBtn').addEventListener('click', () => window.print());
+    $('#lockBtn')?.addEventListener('click', lockApplication);
+    $('#importBackupInput')?.addEventListener('change', event => importFullBackup(event.target.files?.[0]));
 
     let draggedId = null;
     document.addEventListener('dragstart', event => {
@@ -550,9 +1224,13 @@
     }
   }
 
-  loadState();
-  bindEvents();
-  renderAll();
-  setView('dashboard');
-  registerServiceWorker();
+  function startApplication() {
+    loadState();
+    bindEvents();
+    renderAll();
+    setView('dashboard');
+    registerServiceWorker();
+  }
+
+  runAfterAuthentication(startApplication);
 })();
